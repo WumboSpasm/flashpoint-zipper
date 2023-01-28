@@ -35,6 +35,7 @@ type InfoContainer struct {
 type InfoEntry struct {
 	Name string `json:"name"`
 	File string `json:"file"`
+	Path string `json:"path"`
 	Size int64  `json:"size"`
 }
 
@@ -181,6 +182,7 @@ func main() {
 		infoEntry := InfoEntry{
 			Name: platformZip.Name,
 			File: fileName,
+			Path: "Data\\Games",
 			Size: zipInfo.Size(),
 		}
 
@@ -193,9 +195,9 @@ func main() {
 		zipFile.Close()
 	}
 
-	CreateZip("Legacy", config.LegacyPath)
-	CreateZip("Extras", config.ExtrasPath)
-	CreateZip("cgi-bin", config.CgiPath)
+	CreateZip("Legacy", config.LegacyPath, "Legacy\\htdocs")
+	CreateZip("Extras", config.ExtrasPath, "Extras")
+	CreateZip("cgi-bin", config.CgiPath, "Legacy\\cgi-bin")
 
 	log.Println("Writing to info.json...")
 
@@ -215,7 +217,7 @@ func main() {
 	log.Println("Done!")
 }
 
-func CreateZip(name string, rootPath string) {
+func CreateZip(name string, rootPath string, displayPath string) {
 	fileName := "Flashpoint_" + name + "_" + time.Now().Format("20060102") + ".zip"
 	log.Println("Creating " + fileName + "...")
 
@@ -264,6 +266,7 @@ func CreateZip(name string, rootPath string) {
 	infoContainer.Other = append(infoContainer.Other, InfoEntry{
 		Name: name,
 		File: fileName,
+		Path: displayPath,
 		Size: zipInfo.Size(),
 	})
 
