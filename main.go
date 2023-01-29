@@ -30,6 +30,8 @@ type Config struct {
 }
 
 type InfoContainer struct {
+	CompressedSize     int64       `json:"compressedSize"`
+	UncompressedSize   int64       `json:"uncompressedSize"`
 	Platforms          []InfoEntry `json:"platforms"`
 	PlatformsNSFW      []InfoEntry `json:"platformsNsfw"`
 	PlatformImages     []InfoEntry `json:"platformImages"`
@@ -62,6 +64,8 @@ func main() {
 	}
 
 	infoContainer = InfoContainer{
+		CompressedSize:     0,
+		UncompressedSize:   0,
 		Platforms:          make([]InfoEntry, 0),
 		PlatformsNSFW:      make([]InfoEntry, 0),
 		PlatformImages:     make([]InfoEntry, 0),
@@ -230,11 +234,16 @@ func CreateZip(zipData OutputZip, displayPath string, sourcePath string, outputL
 				log.Println("Error: " + file + " does not exist")
 				continue
 			}
+			if fileInfo, err := fileData.Stat(); err == nil {
+				infoContainer.UncompressedSize += fileInfo.Size()
+			} else {
+				log.Fatal(err)
+			}
+
 			fileWriter, err := zipWriter.Create(zipPath)
 			if err != nil {
 				log.Fatal(err)
 			}
-
 			if _, err := io.Copy(fileWriter, fileData); err != nil {
 				log.Fatal(err)
 			}
@@ -256,7 +265,9 @@ func CreateZip(zipData OutputZip, displayPath string, sourcePath string, outputL
 	}
 
 	zipInfo, err := zipFile.Stat()
-	if err != nil {
+	if err == nil {
+		infoContainer.CompressedSize += zipInfo.Size()
+	} else {
 		log.Fatal(err)
 	}
 	hasher := sha256.New()
