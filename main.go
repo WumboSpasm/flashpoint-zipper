@@ -227,7 +227,7 @@ func CreateZip(zipData OutputZip, displayPath string, sourcePath string, outputL
 		if !strings.HasSuffix(file, "\\") {
 			fileData, err := os.OpenFile(file, os.O_RDONLY, 0111)
 			if err != nil {
-				//log.Println("Error: " + file + " does not exist")
+				log.Println("Error: " + file + " does not exist")
 				continue
 			}
 			fileWriter, err := zipWriter.Create(zipPath)
