@@ -1,6 +1,7 @@
 {
   "databasePath": "C:\\Flashpoint\\Data\\flashpoint.sqlite",
   "gameZipPath":  "C:\\Flashpoint\\Data\\Games",
+  "imagePath":    "C:\\Flashpoint\\Data\\Images",
   "legacyPath":   "C:\\Flashpoint\\Legacy\\htdocs",
   "extrasPath":   "C:\\Flashpoint\\Extras",
   "cgiPath":      "C:\\Flashpoint\\Legacy\\cgi-bin",
