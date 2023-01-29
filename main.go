@@ -2,7 +2,9 @@ package main
 
 import (
 	"archive/zip"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"io/fs"
@@ -40,6 +42,7 @@ type InfoEntry struct {
 	File string `json:"file"`
 	Path string `json:"path"`
 	Size int64  `json:"size"`
+	Hash string `json:"hash"`
 }
 
 type OutputZip struct {
@@ -243,9 +246,21 @@ func CreateZip(zipData OutputZip, displayPath string, sourcePath string, outputL
 	}
 
 	zipWriter.Close()
+	zipFile.Close()
+
+	// zipFile needs to be closed and re-opened for the hasher to work, even with os.O_RDONLY set
+	// otherwise it returns the same hash every time
+	zipFile, err = os.OpenFile(filepath.Join(config.OutputPath, fileName), os.O_RDONLY, 0111)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	zipInfo, err := zipFile.Stat()
 	if err != nil {
+		log.Fatal(err)
+	}
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, zipFile); err != nil {
 		log.Fatal(err)
 	}
 
@@ -254,6 +269,7 @@ func CreateZip(zipData OutputZip, displayPath string, sourcePath string, outputL
 		File: fileName,
 		Path: displayPath,
 		Size: zipInfo.Size(),
+		Hash: hex.EncodeToString(hasher.Sum(nil)),
 	}
 
 	*outputList = append(*outputList, infoEntry)
