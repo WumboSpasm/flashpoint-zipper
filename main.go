@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -19,14 +20,19 @@ import (
 )
 
 type Config struct {
+	SourcePaths  PathConfig
+	ZippedPaths  PathConfig
 	DatabasePath string
-	GameZipPath  string
-	ImagePath    string
-	LegacyPath   string
-	ExtrasPath   string
-	CgiPath      string
 	OutputPath   string
 	ExtremeTags  []string
+}
+
+type PathConfig struct {
+	GameZipPath string
+	ImagePath   string
+	LegacyPath  string
+	ExtrasPath  string
+	CgiPath     string
 }
 
 type InfoContainer struct {
@@ -42,7 +48,6 @@ type InfoContainer struct {
 type InfoEntry struct {
 	Name string `json:"name"`
 	File string `json:"file"`
-	Path string `json:"path"`
 	Size int64  `json:"size"`
 	Hash string `json:"hash"`
 }
@@ -80,7 +85,7 @@ func main() {
 
 	platforms := make([]string, 0)
 
-	platformRows, err := db.Query("SELECT platform FROM game GROUP BY platform")
+	platformRows, err := db.Query("SELECT name FROM platform_alias")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -104,7 +109,7 @@ func main() {
 
 		platformZip, platformZipExtreme := OutputZip{platform, "", make([]string, 0)}, OutputZip{platform, "_NSFW", make([]string, 0)}
 
-		gameZipRows, err := db.Query("SELECT path, game.tagsStr FROM game_data JOIN game ON game_data.gameId = game.id AND game.platform = ?", platform)
+		gameZipRows, err := db.Query("SELECT path, game.tagsStr, game.platformsStr FROM game_data JOIN game ON game_data.gameId = game.id AND game.platformsStr LIKE ?", "%"+platform+"%")
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -112,16 +117,21 @@ func main() {
 		for gameZipRows.Next() {
 			var path string
 			var tagsStr string
+			var platformsStr string
 
-			err := gameZipRows.Scan(&path, &tagsStr)
+			err := gameZipRows.Scan(&path, &tagsStr, &platformsStr)
 			if err != sql.ErrNoRows && err != nil {
 				log.Fatal(err)
 			}
 
+			if !slices.Contains(strings.Split(platformsStr, "; "), platform) {
+				continue
+			}
+
 			if !IsExtreme(tagsStr) {
-				platformZip.Files = append(platformZip.Files, filepath.Join(config.GameZipPath, path))
+				platformZip.Files = append(platformZip.Files, filepath.Join(config.SourcePaths.GameZipPath, path))
 			} else {
-				platformZipExtreme.Files = append(platformZipExtreme.Files, filepath.Join(config.GameZipPath, path))
+				platformZipExtreme.Files = append(platformZipExtreme.Files, filepath.Join(config.SourcePaths.GameZipPath, path))
 			}
 		}
 
@@ -134,7 +144,7 @@ func main() {
 
 		platformImageZip, platformImageZipExtreme := OutputZip{platform, "_Images", make([]string, 0)}, OutputZip{platform, "_Images_NSFW", make([]string, 0)}
 
-		imageRows, err := db.Query("SELECT id, tagsStr FROM game WHERE platform = ?", platform)
+		imageRows, err := db.Query("SELECT id, tagsStr, platformsStr FROM game WHERE platformsStr LIKE ?", "%"+platform+"%")
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -142,23 +152,28 @@ func main() {
 		for imageRows.Next() {
 			var id string
 			var tagsStr string
+			var platformsStr string
 
-			err := imageRows.Scan(&id, &tagsStr)
+			err := imageRows.Scan(&id, &tagsStr, &platformsStr)
 			if err != sql.ErrNoRows && err != nil {
 				log.Fatal(err)
 			}
 
-			path := id[:2] + "\\" + id[2:4] + "\\" + id + ".png"
+			if !slices.Contains(strings.Split(platformsStr, "; "), platform) {
+				continue
+			}
+
+			path := filepath.Join(id[:2], id[2:4], id+".png")
 
 			if !IsExtreme(tagsStr) {
 				platformImageZip.Files = append(platformImageZip.Files,
-					filepath.Join(config.ImagePath, "Logos", path),
-					filepath.Join(config.ImagePath, "Screenshots", path),
+					filepath.Join(config.SourcePaths.ImagePath, "Logos", path),
+					filepath.Join(config.SourcePaths.ImagePath, "Screenshots", path),
 				)
 			} else {
 				platformImageZipExtreme.Files = append(platformImageZipExtreme.Files,
-					filepath.Join(config.ImagePath, "Logos", path),
-					filepath.Join(config.ImagePath, "Screenshots", path),
+					filepath.Join(config.SourcePaths.ImagePath, "Logos", path),
+					filepath.Join(config.SourcePaths.ImagePath, "Screenshots", path),
 				)
 			}
 		}
@@ -175,22 +190,22 @@ func main() {
 
 	for _, platformZip := range platformZips {
 		if platformZip.Suffix != "_NSFW" {
-			CreateZip(platformZip, "Data\\Games", config.GameZipPath, &infoContainer.Platforms)
+			CreateZip(platformZip, config.SourcePaths.GameZipPath, config.ZippedPaths.GameZipPath, &infoContainer.Platforms)
 		} else {
-			CreateZip(platformZip, "Data\\Games", config.GameZipPath, &infoContainer.PlatformsNSFW)
+			CreateZip(platformZip, config.SourcePaths.GameZipPath, config.ZippedPaths.GameZipPath, &infoContainer.PlatformsNSFW)
 		}
 	}
 	for _, platformImageZip := range platformImageZips {
 		if platformImageZip.Suffix != "_Images_NSFW" {
-			CreateZip(platformImageZip, "Data\\Images", config.ImagePath, &infoContainer.PlatformImages)
+			CreateZip(platformImageZip, config.SourcePaths.ImagePath, config.ZippedPaths.ImagePath, &infoContainer.PlatformImages)
 		} else {
-			CreateZip(platformImageZip, "Data\\Images", config.ImagePath, &infoContainer.PlatformImagesNSFW)
+			CreateZip(platformImageZip, config.SourcePaths.ImagePath, config.ZippedPaths.ImagePath, &infoContainer.PlatformImagesNSFW)
 		}
 	}
 
-	CreateZip(OutputZip{"Legacy", "", GetFileList(config.LegacyPath)}, "Legacy\\htdocs", config.LegacyPath, &infoContainer.Other)
-	CreateZip(OutputZip{"Extras", "", GetFileList(config.ExtrasPath)}, "Extras", config.ExtrasPath, &infoContainer.Other)
-	CreateZip(OutputZip{"cgi-bin", "", GetFileList(config.CgiPath)}, "Legacy\\cgi-bin", config.CgiPath, &infoContainer.Other)
+	CreateZip(OutputZip{"Legacy", "", GetFileList(config.SourcePaths.LegacyPath)}, config.SourcePaths.LegacyPath, config.ZippedPaths.LegacyPath, &infoContainer.Other)
+	CreateZip(OutputZip{"Extras", "", GetFileList(config.SourcePaths.ExtrasPath)}, config.SourcePaths.ExtrasPath, config.ZippedPaths.ExtrasPath, &infoContainer.Other)
+	CreateZip(OutputZip{"cgi-bin", "", GetFileList(config.SourcePaths.CgiPath)}, config.SourcePaths.CgiPath, config.ZippedPaths.CgiPath, &infoContainer.Other)
 
 	log.Println("Writing to info.json...")
 
@@ -210,11 +225,11 @@ func main() {
 	log.Println("Done!")
 }
 
-func CreateZip(zipData OutputZip, displayPath string, sourcePath string, outputList *[]InfoEntry) {
-	fileName := "Flashpoint_" + strings.ReplaceAll(zipData.Name, " ", "_") + zipData.Suffix + "_" + time.Now().Format("20060102") + ".zip"
-	log.Println("Creating " + fileName + "...")
+func CreateZip(zipData OutputZip, sourcePath string, zippedPath string, outputList *[]InfoEntry) {
+	zipFileName := "Flashpoint_" + strings.ReplaceAll(zipData.Name, " ", "_") + zipData.Suffix + "_" + time.Now().Format("20060102") + ".zip"
+	log.Println("Creating " + zipFileName + "...")
 
-	zipFile, err := os.OpenFile(filepath.Join(config.OutputPath, fileName), os.O_CREATE|os.O_WRONLY, 0222)
+	zipFile, err := os.OpenFile(filepath.Join(config.OutputPath, zipFileName), os.O_CREATE|os.O_WRONLY, 0222)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -223,15 +238,15 @@ func CreateZip(zipData OutputZip, displayPath string, sourcePath string, outputL
 	zipWriter := zip.NewWriter(zipFile)
 
 	for _, file := range zipData.Files {
-		zipPath := strings.TrimLeft(strings.ReplaceAll(strings.TrimPrefix(file, sourcePath), "\\", "/"), "/")
-		if zipPath == "" {
+		zippedFile := path.Join(zippedPath, filepath.ToSlash(strings.TrimPrefix(file, sourcePath)))
+		if zippedFile == zippedPath {
 			continue
 		}
 
-		if !strings.HasSuffix(file, "\\") {
+		if !strings.HasSuffix(file, string(os.PathSeparator)) {
 			fileData, err := os.OpenFile(file, os.O_RDONLY, 0111)
 			if err != nil {
-				log.Println("Error: " + file + " does not exist")
+				//log.Println("Error: " + file + " does not exist")
 				continue
 			}
 			if fileInfo, err := fileData.Stat(); err == nil {
@@ -240,7 +255,7 @@ func CreateZip(zipData OutputZip, displayPath string, sourcePath string, outputL
 				log.Fatal(err)
 			}
 
-			fileWriter, err := zipWriter.Create(zipPath)
+			fileWriter, err := zipWriter.Create(zippedFile)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -248,7 +263,7 @@ func CreateZip(zipData OutputZip, displayPath string, sourcePath string, outputL
 				log.Fatal(err)
 			}
 		} else {
-			if _, err := zipWriter.Create(zipPath); err != nil {
+			if _, err := zipWriter.Create(zippedFile + "/"); err != nil {
 				log.Fatal(err)
 			}
 		}
@@ -259,7 +274,7 @@ func CreateZip(zipData OutputZip, displayPath string, sourcePath string, outputL
 
 	// zipFile needs to be closed and re-opened for the hasher to work, even with os.O_RDONLY set
 	// otherwise it returns the same hash every time
-	zipFile, err = os.OpenFile(filepath.Join(config.OutputPath, fileName), os.O_RDONLY, 0111)
+	zipFile, err = os.OpenFile(filepath.Join(config.OutputPath, zipFileName), os.O_RDONLY, 0111)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -277,8 +292,7 @@ func CreateZip(zipData OutputZip, displayPath string, sourcePath string, outputL
 
 	infoEntry := InfoEntry{
 		Name: zipData.Name,
-		File: fileName,
-		Path: displayPath,
+		File: zipFileName,
 		Size: zipInfo.Size(),
 		Hash: hex.EncodeToString(hasher.Sum(nil)),
 	}
@@ -299,12 +313,12 @@ func GetFileList(rootPath string) []string {
 		if !d.IsDir() {
 			fileList = append(fileList, path)
 		} else {
-			fileList = append(fileList, path+"\\")
+			fileList = append(fileList, path+string(os.PathSeparator))
 		}
 
 		return nil
 	}); err != nil {
-		log.Fatal(err)
+		log.Println("Error: " + rootPath + " cannot be accessed")
 	}
 
 	return fileList
