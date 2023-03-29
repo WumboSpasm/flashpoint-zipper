@@ -15,6 +15,10 @@
   },
   "databasePath":  "C:\\Flashpoint\\Data\\flashpoint.sqlite",
   "outputPath":    "C:\\flashpoint-database\\downloads",
+  "zipDirectory":  "zip",
+  "torrentTrackers": [
+    "udp://tracker.openbittorrent.com:6969/announce"
+  ],
   "extremeTags": [
     "LEGACY-Extreme"
   ]

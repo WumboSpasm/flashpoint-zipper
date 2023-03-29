@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
@@ -20,11 +21,13 @@ import (
 )
 
 type Config struct {
-	SourcePaths  PathConfig
-	ZippedPaths  PathConfig
-	DatabasePath string
-	OutputPath   string
-	ExtremeTags  []string
+	SourcePaths     PathConfig
+	ZippedPaths     PathConfig
+	DatabasePath    string
+	OutputPath      string
+	ZipDirectory    string
+	TorrentTrackers []string
+	ExtremeTags     []string
 }
 
 type PathConfig struct {
@@ -36,6 +39,8 @@ type PathConfig struct {
 }
 
 type InfoContainer struct {
+	TorrentFile        string      `json:"torrentFile"`
+	ZipDirectory       string      `json:"zipDirectory"`
 	CompressedSize     int64       `json:"compressedSize"`
 	UncompressedSize   int64       `json:"uncompressedSize"`
 	Platforms          []InfoEntry `json:"platforms"`
@@ -69,6 +74,8 @@ func main() {
 	}
 
 	infoContainer = InfoContainer{
+		TorrentFile:        "Flashpoint_Archive_" + time.Now().Format("20060102") + ".torrent",
+		ZipDirectory:       config.ZipDirectory,
 		CompressedSize:     0,
 		UncompressedSize:   0,
 		Platforms:          make([]InfoEntry, 0),
@@ -188,6 +195,11 @@ func main() {
 
 	db.Close()
 
+	zipOutputPath := filepath.Join(config.OutputPath, config.ZipDirectory)
+	if err := os.MkdirAll(zipOutputPath, 0666); err != nil {
+		log.Fatal(err)
+	}
+
 	for _, platformZip := range platformZips {
 		if platformZip.Suffix != "_NSFW" {
 			CreateZip(platformZip, config.SourcePaths.GameZipPath, config.ZippedPaths.GameZipPath, &infoContainer.Platforms)
@@ -206,6 +218,18 @@ func main() {
 	CreateZip(OutputZip{"Legacy", "", GetFileList(config.SourcePaths.LegacyPath)}, config.SourcePaths.LegacyPath, config.ZippedPaths.LegacyPath, &infoContainer.Other)
 	CreateZip(OutputZip{"Extras", "", GetFileList(config.SourcePaths.ExtrasPath)}, config.SourcePaths.ExtrasPath, config.ZippedPaths.ExtrasPath, &infoContainer.Other)
 	CreateZip(OutputZip{"cgi-bin", "", GetFileList(config.SourcePaths.CgiPath)}, config.SourcePaths.CgiPath, config.ZippedPaths.CgiPath, &infoContainer.Other)
+
+	log.Println("Creating torrent file...")
+
+	exec.Command(
+		"mktorrent",
+		"-a \""+strings.Join(config.TorrentTrackers, "\",\"")+"\"",
+		"-n \"Flashpoint Archive ("+time.Now().Format("2006-01-02")+")\"",
+		"-c \"Web content preserved by Flashpoint as of "+time.Now().Format("2006-01-02")+".\"",
+		"-s \"https://unstable.life/flashpoint-database/downloads/\"",
+		"-o \""+filepath.Join(config.OutputPath, infoContainer.TorrentFile)+"\"",
+		"\""+zipOutputPath+"\"",
+	)
 
 	log.Println("Writing to info.json...")
 
@@ -229,7 +253,7 @@ func CreateZip(zipData OutputZip, sourcePath string, zippedPath string, outputLi
 	zipFileName := "Flashpoint_" + strings.ReplaceAll(zipData.Name, " ", "_") + zipData.Suffix + "_" + time.Now().Format("20060102") + ".zip"
 	log.Println("Creating " + zipFileName + "...")
 
-	zipFile, err := os.OpenFile(filepath.Join(config.OutputPath, zipFileName), os.O_CREATE|os.O_WRONLY, 0222)
+	zipFile, err := os.OpenFile(filepath.Join(config.OutputPath, config.ZipDirectory, zipFileName), os.O_CREATE|os.O_WRONLY, 0222)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -246,7 +270,7 @@ func CreateZip(zipData OutputZip, sourcePath string, zippedPath string, outputLi
 		if !strings.HasSuffix(file, string(os.PathSeparator)) {
 			fileData, err := os.OpenFile(file, os.O_RDONLY, 0111)
 			if err != nil {
-				//log.Println("Error: " + file + " does not exist")
+				log.Println("Error: " + file + " does not exist")
 				continue
 			}
 			if fileInfo, err := fileData.Stat(); err == nil {
@@ -274,7 +298,7 @@ func CreateZip(zipData OutputZip, sourcePath string, zippedPath string, outputLi
 
 	// zipFile needs to be closed and re-opened for the hasher to work, even with os.O_RDONLY set
 	// otherwise it returns the same hash every time
-	zipFile, err = os.OpenFile(filepath.Join(config.OutputPath, zipFileName), os.O_RDONLY, 0111)
+	zipFile, err = os.OpenFile(filepath.Join(config.OutputPath, config.ZipDirectory, zipFileName), os.O_RDONLY, 0111)
 	if err != nil {
 		log.Fatal(err)
 	}
